@@ -1,19 +1,24 @@
 package org.example.userauthservice_oct2026morning.services;
 
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.MacAlgorithm;
+import org.antlr.v4.runtime.misc.Pair;
 import org.example.userauthservice_oct2026morning.exceptions.EmailAlreadyUsedException;
 import org.example.userauthservice_oct2026morning.exceptions.IncorrectPasswordException;
 import org.example.userauthservice_oct2026morning.exceptions.UserNotRegisteredException;
 import org.example.userauthservice_oct2026morning.models.Role;
+import org.example.userauthservice_oct2026morning.models.Status;
 import org.example.userauthservice_oct2026morning.models.User;
+import org.example.userauthservice_oct2026morning.models.UserSession;
 import org.example.userauthservice_oct2026morning.repos.RoleRepo;
 import org.example.userauthservice_oct2026morning.repos.UserRepo;
+import org.example.userauthservice_oct2026morning.repos.UserSessionRepo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
+import javax.crypto.SecretKey;
+import java.util.*;
 
 @Service
 public class AuthService implements IAuthService {
@@ -26,6 +31,12 @@ public class AuthService implements IAuthService {
 
     @Autowired
     private BCryptPasswordEncoder bCryptPasswordEncoder;
+
+    @Autowired
+    private UserSessionRepo userSessionRepo;
+
+    @Autowired
+    private SecretKey secretKey;
 
     @Override
     public User signup(String name, String phoneNumber, String email, String password) {
@@ -58,7 +69,7 @@ public class AuthService implements IAuthService {
     }
 
     @Override
-    public User login(String email, String password) {
+    public Pair<User,String> login(String email, String password) {
        Optional<User> userOptional = userRepo.findByEmail(email);
        if (userOptional.isEmpty()) {
            throw new UserNotRegisteredException("Please signup first");
@@ -71,7 +82,53 @@ public class AuthService implements IAuthService {
        }
 
        //Token Generation
+        Map<String,Object> claims = new HashMap<>();
+        claims.put("user_id",user.getId());
+        claims.put("generated_by","scaler");
+        Long currentTime = System.currentTimeMillis();
+        claims.put("iat",currentTime);
+        claims.put("exp",currentTime+100000);
+        List<String> roles = new ArrayList<>();
+        for (Role role : user.getRoleList()) {
+            roles.add(role.getValue());
+        }
+        claims.put("access",roles);
 
-       return user;
+//        MacAlgorithm macAlgorithm = Jwts.SIG.HS256;
+//        SecretKey secretKey = macAlgorithm.key().build();
+        String token = Jwts.builder().claims(claims).signWith(secretKey).compact();
+
+        UserSession userSession = new UserSession();
+        userSession.setUser(user);
+        userSession.setToken(token);
+        userSession.setExpiry(currentTime+100000);
+        userSessionRepo.save(userSession);
+
+       return new Pair<>(user,token);
+    }
+
+    //Alternate approach of validation - https://github.com/ak-s-0723/UserAuthService_Aug2026/commit/7ad4048ac9b1b9a5aec52dea511de28b436bf184#diff-77b3c90b63190c543c8583282e1a6035675999184d440dd66c6f79317ca38764
+    public Boolean validateToken(String token) {
+        Optional<UserSession> optionalUserSession = userSessionRepo.findByToken(token);
+        if (optionalUserSession.isEmpty()) {
+            return false;
+        }
+
+        UserSession userSession = optionalUserSession.get();
+        if (userSession.getStatus().equals(Status.INACTIVE)) {
+            return false;
+        }
+
+        System.out.println("current Time = "+System.currentTimeMillis());
+        System.out.println("expiry = "+userSession.getExpiry());
+
+        if (userSession.getExpiry() < System.currentTimeMillis()) {
+            //Token has expired
+            userSession.setStatus(Status.INACTIVE);
+            userSessionRepo.save(userSession);
+            return  false;
+        }
+
+        return true;
     }
 }

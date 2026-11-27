@@ -1,12 +1,19 @@
 package org.example.userauthservice_oct2026morning.controllers;
 
+import org.antlr.v4.runtime.misc.Pair;
 import org.example.userauthservice_oct2026morning.dtos.LoginRequestDto;
 import org.example.userauthservice_oct2026morning.dtos.SignupRequestDto;
 import org.example.userauthservice_oct2026morning.dtos.UserDto;
+import org.example.userauthservice_oct2026morning.dtos.ValidateTokenRequestDto;
 import org.example.userauthservice_oct2026morning.models.Role;
 import org.example.userauthservice_oct2026morning.models.User;
 import org.example.userauthservice_oct2026morning.services.IAuthService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -38,11 +45,20 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public UserDto login(@RequestBody LoginRequestDto loginRequestDto) {
-       User user =
+    public ResponseEntity<UserDto> login(@RequestBody LoginRequestDto loginRequestDto) {
+       Pair<User,String> response =
                authService.login(loginRequestDto.getEmail(), loginRequestDto.getPassword());
 
-       return from(user);
+       String token = response.b;
+        MultiValueMap<String,String> headers = new LinkedMultiValueMap<>();
+        headers.add(HttpHeaders.SET_COOKIE,"auth_session_id ="+token);
+
+       return new ResponseEntity<>(from(response.a), headers, HttpStatus.OK);
+    }
+
+    @PostMapping("/validateToken")
+    public Boolean validateToken(@RequestBody ValidateTokenRequestDto validateTokenRequestDto) {
+        return authService.validateToken(validateTokenRequestDto.getToken());
     }
 
     private UserDto from(User user) {
